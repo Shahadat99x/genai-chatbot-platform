@@ -6,12 +6,14 @@ import json
 import os
 from services.ollama_client import ollama_client
 from services.safety_service import safety_service
+from services.rag_service import rag_service, RAGIndexMissingError, RAGRetrievalError
 
 app = FastAPI()
 
 # CORS configuration
 origins = [
     "http://localhost:3000",
+    "http://127.0.0.1:3000",
 ]
 
 app.add_middleware(
@@ -33,10 +35,12 @@ async def http_exception_handler(request: Request, exc: HTTPException):
 @app.get("/health")
 async def read_health():
     ollama_status = await ollama_client.check_health()
+    rag_status = rag_service.check_health()
     return {
         "status": "ok", 
         "service": "api",
-        "ollama_connected": ollama_status
+        "ollama_connected": ollama_status,
+        "rag_index_loaded": rag_status
     }
 
 @app.get("/debug/directory/preview")
@@ -64,27 +68,73 @@ async def debug_directory_preview(limit: int = 5):
     except Exception as e:
          raise HTTPException(status_code=500, detail=f"Failed to read data: {str(e)}")
 
+# In-memory session store (resets on restart)
+sessions = {}
 
 @app.post("/chat", response_model=models.ChatResponse)
 async def chat_endpoint(request: models.ChatRequest):
     try:
-        # 1. Safety Evaluation (Phase 2)
-        safety_eval = safety_service.evaluate_user_message(request.message)
+        # 1. Session Management
+        session_id = request.session_id or "default"
+        if session_id not in sessions:
+            sessions[session_id] = {
+                "emergency_lock": False,
+                "last_triage": "self_care",
+                "urgent_pending": False
+            }
         
-        # If Evaluate returns a determinstic response (Escalate or Refuse)
-        if safety_eval.action in ["escalate", "refuse"] and safety_eval.message_override:
+        session = sessions[session_id]
+
+        # 2. Safety Evaluation (Phase 3.2 Triage)
+        safety_eval = safety_service.evaluate_user_message(request.message, session)
+        
+        # If Action is NOT allow (Escalate, Refuse, Clarify)
+        if safety_eval.action != "allow" and safety_eval.message_override:
             return models.ChatResponse(
                 assistant_message=safety_eval.message_override,
                 urgency=safety_eval.urgency,
                 safety_flags=safety_eval.flags,
                 citations=[],
-                recommendations=[]
+                recommendations=safety_eval.questions or []
             )
 
-        # 2. Allow - Call Ollama
+        # 3. Allow - Handle RAG vs Baseline
+        
+        # Initialize RAG (Lazy load)
+        if request.mode == "rag" or request.mode == "rag_safety": # Handle both
+             rag_service.initialize() # Safe to call multiple times
+
+        retrieved_context = ""
+        citations = []
+        
+        if request.mode in ["rag", "rag_safety"]:
+            # Retrieve
+            retrieved_items = rag_service.retrieve(request.message, k=4)
+            citations = retrieved_items
+            
+            # Format Context
+            if retrieved_items:
+                context_str = "\n".join([f"[{i+1}] {item['full_text']}" for i, item in enumerate(retrieved_items)])
+                retrieved_context = f"\n\nCONTEXT FROM MEDICAL GUIDELINES:\n{context_str}\n\n"
+            else:
+                retrieved_context = "\n\nCONTEXT: No relevant medical guidelines found locally.\n\n"
+
         # Construct messages for Ollama
+        system_content = (
+            "You are a helpful medical triage assistant. Provide clear, safe advice. "
+            "Do not replace professional care. If urgent, advise calling emergency services."
+        )
+        
+        if retrieved_context:
+            system_content += (
+                f"{retrieved_context}"
+                "INSTRUCTIONS: Use the provided CONTEXT to answer the user's question. "
+                "Cite the context using [1], [2] etc. where appropriate. "
+                "If the context doesn't answer the question, say so, but you may provide general general safety advice foundation knowledge if safe."
+            )
+
         messages = [
-            {"role": "system", "content": "You are a helpful medical triage assistant. Provide clear, safe advice. Do not replace professional care. If urgent, advise calling emergency services."},
+            {"role": "system", "content": system_content},
             {"role": "user", "content": request.message}
         ]
         
@@ -100,8 +150,15 @@ async def chat_endpoint(request: models.ChatRequest):
             assistant_message=final_message,
             urgency=safety_eval.urgency, # Default "self_care" from safety service
             safety_flags=safety_eval.flags, # Empty from allow
-            citations=[],
+            citations=citations,
             recommendations=[]
+        )
+    except (RAGIndexMissingError, RAGRetrievalError) as e:
+        # RAG specific errors -> 503
+        error_code = "INDEX_MISSING" if isinstance(e, RAGIndexMissingError) else "RAG_ERROR"
+        return JSONResponse(
+            status_code=503,
+            content={"error": {"code": error_code, "message": str(e)}}
         )
     except RuntimeError as e:
         # Ollama connection error - Standardized Error
