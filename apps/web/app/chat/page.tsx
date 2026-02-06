@@ -7,6 +7,12 @@ interface ChatResponse {
   urgency: "self_care" | "gp" | "urgent" | "emergency";
   safety_flags: string[];
   recommendations: string[];
+  citations?: {
+    title: string;
+    source_type: string;
+    snippet: string;
+    source_url?: string;
+  }[];
 }
 
 export default function ChatPage() {
@@ -15,8 +21,11 @@ export default function ChatPage() {
     { role: "user" | "assistant"; content: string; meta?: ChatResponse }[]
   >([]);
   const [loading, setLoading] = useState(false);
+  // Add mode state (hidden for now, defaulted to "rag" or "baseline")
+  const [mode, setMode] = useState("rag"); // Default to RAG for Phase 3
 
-
+  // API Base URL - shown in UI for debugging
+  const apiBase = process.env.NEXT_PUBLIC_API_BASE_URL || "http://127.0.0.1:8000";
 
   const sendMessage = async () => {
     if (!input.trim()) return;
@@ -26,15 +35,29 @@ export default function ChatPage() {
     setMessages((prev) => [...prev, { role: "user", content: userMsg }]);
     setLoading(true);
 
-    const apiBase = process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8000";
+    // Timeout controller (30s)
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 30000);
+
     try {
       const res = await fetch(`${apiBase}/chat`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ message: userMsg }),
+        body: JSON.stringify({ message: userMsg, mode: mode }),
+        signal: controller.signal,
       });
+      clearTimeout(timeoutId);
+
       if (!res.ok) {
-        throw new Error(`API Error: ${res.status}`);
+        // Try to read error body
+        let errorMsg = `API Error: ${res.status}`;
+        try {
+          const errorData = await res.json();
+          if (errorData.error?.message) {
+            errorMsg = errorData.error.message;
+          }
+        } catch {}
+        throw new Error(errorMsg);
       }
       const data: ChatResponse = await res.json();
       setMessages((prev) => [
@@ -47,9 +70,18 @@ export default function ChatPage() {
       ]);
     } catch (e: any) {
       console.error(e);
+      let errorContent = `⚠️ Error: ${e.message || "Unknown error"}`;
+      
+      // Better message for network errors
+      if (e.name === "AbortError") {
+        errorContent = `⚠️ Request timed out. Is the API running at ${apiBase}?`;
+      } else if (e.message === "Failed to fetch") {
+        errorContent = `⚠️ Cannot reach API at ${apiBase}. Is FastAPI running on port 8000?`;
+      }
+      
       setMessages((prev) => [
         ...prev,
-        { role: "assistant", content: `⚠️ Error: ${e.message || "Could not connect to assistant."}` },
+        { role: "assistant", content: errorContent },
       ]);
     } finally {
       setLoading(false);
@@ -57,8 +89,9 @@ export default function ChatPage() {
   };
 
   const getUrgencyColor = (u?: string) => {
-    if (u === "high") return "bg-red-100 text-red-700";
-    if (u === "medium") return "bg-yellow-100 text-yellow-700";
+    if (u === "emergency") return "bg-red-600 text-white font-bold animate-pulse";
+    if (u === "urgent") return "bg-orange-100 text-orange-800";
+    if (u === "gp") return "bg-yellow-100 text-yellow-800";
     return "bg-green-100 text-green-700";
   };
 
@@ -66,7 +99,10 @@ export default function ChatPage() {
     <div className="flex h-screen flex-col bg-white">
       <header className="border-b p-4 flex justify-between items-center bg-gray-50">
         <h1 className="text-xl font-bold text-gray-800">Healthcare Assistant</h1>
-        <div className="text-sm text-gray-500">Phase 0 Stub</div>
+        <div className="text-right">
+          <div className="text-sm text-gray-500">Phase 3: RAG Implementation</div>
+          <div className="text-[10px] text-gray-400 font-mono">API: {apiBase}</div>
+        </div>
       </header>
 
       <main className="flex-1 overflow-y-auto p-4 space-y-4">
@@ -110,17 +146,43 @@ export default function ChatPage() {
                 </div>
                 {m.meta.recommendations.length > 0 && (
                   <div>
-                    <strong>Recommendations:</strong>
-                    <ul className="list-disc list-inside">
-                      {m.meta.recommendations.map((r, idx) => (
-                        <li key={idx}>{r}</li>
+                    <p className="font-semibold text-gray-700">Recommendations:</p>
+                    <ul className="list-disc pl-5">
+                      {m.meta.recommendations.map((rec, idx) => (
+                        <li key={idx}>{rec}</li>
                       ))}
                     </ul>
                   </div>
                 )}
-                <div className="border-t pt-1 mt-1 border-gray-200">
-                  <em>Sources (Placeholder for RAG)</em>
-                </div>
+                
+                {/* Citations (Phase 3) */}
+                {m.meta.citations && m.meta.citations.length > 0 ? (
+                    <div className="mt-3 pt-3 border-t border-gray-100">
+                        <p className="font-semibold text-gray-600 mb-1 flex items-center gap-1">
+                            📚 Guidelines & Sources
+                        </p>
+                        <ul className="space-y-2">
+                            {m.meta.citations.map((cite, idx) => (
+                                <li key={idx} className="bg-gray-50 p-2 rounded text-[11px] border border-gray-200">
+                                    <div className="font-bold text-blue-800">
+                                        [{idx+1}] {cite.title} 
+                                        {cite.source_type && <span className="opacity-75 font-normal ml-1">({cite.source_type})</span>}
+                                    </div>
+                                    <div className="text-gray-600 mt-1 italic">"{cite.snippet}"</div>
+                                     {cite.source_url && (
+                                        <a href={cite.source_url} target="_blank" className="text-blue-500 hover:underline mt-1 block">
+                                            Source Link
+                                        </a>
+                                     )}
+                                </li>
+                            ))}
+                        </ul>
+                    </div>
+                ) : (
+                    <div className="border-t pt-1 mt-1 border-gray-200 text-gray-400 italic">
+                        No sources used (General Knowledge or Safe Chit-chat)
+                    </div>
+                )}
               </div>
             )}
           </div>
