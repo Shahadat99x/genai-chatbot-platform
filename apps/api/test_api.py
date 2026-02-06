@@ -51,5 +51,18 @@ async def test():
         except Exception as e:
             print("Allowed Chat failed:", e)
 
+        print("\nChecking RAG: Fever (Expecting Citations)...")
+        try:
+            rag = await client.post("/chat", json={"message": "How do I treat a fever at home?", "mode": "rag"})
+            print("RAG Status:", rag.status_code)
+            data = rag.json()
+            if rag.status_code != 200:
+                print("RAG Error:", data)
+            print("Citations Count:", len(data.get("citations", [])))
+            if data.get("citations"):
+                print("First Citation Title:", data["citations"][0]["title"])
+        except Exception as e:
+            print("RAG Chat failed:", e)
+
 if __name__ == "__main__":
     asyncio.run(test())
