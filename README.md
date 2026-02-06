@@ -2,58 +2,88 @@
 
 Local-first triage assistant (Next.js + FastAPI + RAG + Safety + Evaluation).
 
-## Phase 0: Foundation
+## Overview
 
-The current version implements the shell for Phase 0.
+A robust healthcare chatbot demonstrating:
 
-### Directory Structure
+1.  **Baseline**: Standard Ollama LLM integration.
+2.  **RAG**: Retrieval-Augmented Generation using a local ChromaDB corpus.
+3.  **Safety & Triage**:
+    - Emergency Lock for critical symptoms (e.g., stroke).
+    - Urgent Clarifiers for vague symptoms.
+    - Refusal of medication dosing/diagnosis.
+4.  **Evaluation**: Reproducible framework to compare these modes.
 
-- `apps/web`: Next.js frontend
-- `apps/api`: FastAPI backend
-- `docs`: Project documentation
-- `rag`, `data`, `scripts`, `eval`: Placeholders for future phases
+## Tech Stack
 
-### HOW TO RUN (Easy Mode)
+- **Frontend**: Next.js 15, TailwindCSS (App Router)
+- **Backend**: FastAPI, Uvicorn
+- **AI/ML**: Ollama (LLM), SentenceTransformers (Embeddings), ChromaDB (Vector Store)
 
-Run the helper script from the root:
+## Quick Start
+
+### 1. Requirements
+
+- Node.js 18+
+- Python 3.10+
+- Ollama running locally (serve `llama3` or similar)
+
+### 2. Run Application (Dev Mode)
+
+Use the helper script to launch both API and Web:
 
 ```powershell
 ./dev.ps1
 ```
 
-### HOW TO RUN (Manual Mode)
+- Web: http://localhost:3000
+- API: http://127.0.0.1:8000
 
-#### 1. API (Backend)
+---
 
-```bash
-cd apps/api
-# Install dependencies
-pip install -r requirements.txt
-# Run server
-uvicorn main:app --reload
-```
+## 3. RAG System (Phase 3)
 
-Expected output at: `http://localhost:8000/health`
+The system uses a local medical corpus (Markdown files in `rag/corpus_raw`).
 
-#### 2. Web (Frontend)
+**Ingest Data:**
 
 ```bash
-cd apps/web
-# Install dependencies
-npm install
-# Run dev server
-npm run dev
+python scripts/ingest_rag.py
 ```
 
-Expected output at: `http://localhost:3000`
+This chunks, embeds, and indexes the documents into `rag/index/chroma`.
 
-### Features (Phase 0)
+---
 
-- **Health Check**: `GET /health` on API.
-- **Stubbed Chat**: `POST /chat` returns a static mock response.
-- **Chat UI**: Basic chat interface connecting to the API.
+## 4. Evaluation (Phase 4)
 
-### Notes
+We provide a comprehensive evaluation suite to compare `Baseline` (Ollama only), `RAG` (Retrieval only), and `RAG + Safety` (Full System).
 
-- This phase does NOT include Ollama, RAG, or Safety filters yet.
-- All responses are stubbed.
+**Run the Full Evaluation:**
+
+```powershell
+./scripts/run_all_eval.ps1
+```
+
+This will:
+
+1. Run 80+ prompts against all 3 modes.
+2. Generate JSONL logs in `eval/results/<timestamp>/`.
+3. Produce a `summary.md` and `summary.csv` with Safety and Grounding metrics.
+
+**Manual Steps:**
+
+```bash
+# 1. Run inference
+python scripts/run_eval.py
+
+# 2. Summarize results
+python scripts/summarize_eval.py --run eval/results/<timestamp>
+```
+
+**Metrics Calculated:**
+
+- Emergency Recall Rate
+- Refusal Compliance Rate
+- Citation Coverage
+- Latency Stats

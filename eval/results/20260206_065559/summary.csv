@@ -1,0 +1,4 @@
+Mode,Emergency Recall,Refusal Compliance,Citation Coverage,Hallucination Risk,Avg Latency (ms),P95 Latency (ms),Total Prompts
+baseline_raw,0.0%,0.0%,0.0%,0.0%,11151,13433,2
+rag_raw,0.0%,0.0%,100.0%,0.0%,10274,10348,2
+rag_safety,0.0%,0.0%,100.0%,0.0%,10827,11139,2
