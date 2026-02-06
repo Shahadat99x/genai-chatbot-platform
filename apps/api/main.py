@@ -86,28 +86,30 @@ async def chat_endpoint(request: models.ChatRequest):
         session = sessions[session_id]
 
         # 2. Safety Evaluation (Phase 3.2 Triage)
-        safety_eval = safety_service.evaluate_user_message(request.message, session)
-        
-        # If Action is NOT allow (Escalate, Refuse, Clarify)
-        if safety_eval.action != "allow" and safety_eval.message_override:
-            return models.ChatResponse(
-                assistant_message=safety_eval.message_override,
-                urgency=safety_eval.urgency,
-                safety_flags=safety_eval.flags,
-                citations=[],
-                recommendations=safety_eval.questions or []
-            )
+        # BYPASS for "raw" modes (ablation testing)
+        if "_raw" not in request.mode:
+            safety_eval = safety_service.evaluate_user_message(request.message, session)
+            
+            # If Action is NOT allow (Escalate, Refuse, Clarify)
+            if safety_eval.action != "allow" and safety_eval.message_override:
+                return models.ChatResponse(
+                    assistant_message=safety_eval.message_override,
+                    urgency=safety_eval.urgency,
+                    safety_flags=safety_eval.flags,
+                    citations=[],
+                    recommendations=safety_eval.questions or []
+                )
 
         # 3. Allow - Handle RAG vs Baseline
         
         # Initialize RAG (Lazy load)
-        if request.mode == "rag" or request.mode == "rag_safety": # Handle both
+        if "rag" in request.mode: # Handle rag, rag_safety, rag_raw
              rag_service.initialize() # Safe to call multiple times
 
         retrieved_context = ""
         citations = []
         
-        if request.mode in ["rag", "rag_safety"]:
+        if "rag" in request.mode:
             # Retrieve
             retrieved_items = rag_service.retrieve(request.message, k=4)
             citations = retrieved_items
@@ -141,15 +143,25 @@ async def chat_endpoint(request: models.ChatRequest):
         # Call Ollama
         response_content = await ollama_client.generate_response(messages)
         
-        # Append Disclaimer (Phase 2)
-        disclaimer = "\n\nI’m not a doctor. If symptoms worsen or you have serious concerns, seek medical care."
-        final_message = response_content + disclaimer
+        # Append Disclaimer (only for safer modes)
+        if "_raw" not in request.mode:
+            disclaimer = "\n\nI’m not a doctor. If symptoms worsen or you have serious concerns, seek medical care."
+            final_message = response_content + disclaimer
+        else:
+            final_message = response_content
+
+        # Resolve urgency/flags for raw modes
+        final_urgency = "self_care"
+        final_flags = []
+        if "_raw" not in request.mode:
+            final_urgency = safety_eval.urgency
+            final_flags = safety_eval.flags
         
-        # Return structured response (Baseline Mode)
+        # Return structured response
         return models.ChatResponse(
             assistant_message=final_message,
-            urgency=safety_eval.urgency, # Default "self_care" from safety service
-            safety_flags=safety_eval.flags, # Empty from allow
+            urgency=final_urgency, 
+            safety_flags=final_flags, 
             citations=citations,
             recommendations=[]
         )
