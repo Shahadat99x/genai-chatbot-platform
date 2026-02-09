@@ -5,3 +5,7 @@ chromadb
 sentence-transformers
 numpy
 httpx
+opencv-python-headless
+pytesseract
+pillow
+python-multipart
