@@ -1,14 +1,37 @@
+# Load environment variables FIRST, before any other imports
+import os
+from pathlib import Path
+from dotenv import load_dotenv
+
+# Load .env files (apps/api/.env takes priority over root .env)
+_api_env = Path(__file__).parent / ".env"
+_root_env = Path(__file__).parent.parent.parent / ".env"
+
+if _api_env.exists():
+    load_dotenv(_api_env)
+    print(f"[env] Loaded: {_api_env}")
+elif _root_env.exists():
+    load_dotenv(_root_env)
+    print(f"[env] Loaded: {_root_env}")
+else:
+    print("[env] No .env file found")
+
+# Debug log for OCR setup (safe - doesn't leak secrets)
+print(f"[env] TESSERACT_CMD set: {bool(os.getenv('TESSERACT_CMD'))}")
+
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 import models
 import json
-import os
 from services.ollama_client import ollama_client
 from services.safety_service import safety_service
 from services.rag_service import rag_service, RAGIndexMissingError, RAGRetrievalError
+from routes import intake
+
 
 app = FastAPI()
+app.include_router(intake.router)
 
 # CORS configuration
 origins = [
