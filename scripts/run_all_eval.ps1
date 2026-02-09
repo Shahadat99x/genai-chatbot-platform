@@ -42,3 +42,5 @@ $SumScript = Join-Path (Get-Location) "scripts\summarize_eval.py"
 python $SumScript --run "$($LatestRun.FullName)"
 
 Write-Host "Done!" -ForegroundColor Cyan
+
+
