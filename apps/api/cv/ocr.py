@@ -260,3 +260,120 @@ def run_ocr(image: np.ndarray, engine: str = "tesseract", mode: str = "basic") -
             timing_ms=elapsed_ms,
             debug=debug_info
         )
+
+
+def run_ocr_single_variant(
+    image: np.ndarray,
+    tesseract_cmd: str,
+    variant_name: str,
+    preprocess_mode: Optional[str] = None
+) -> Dict[str, Any]:
+    """
+    Run OCR on a single image variant.
+    
+    Args:
+        image: Input image (BGR)
+        tesseract_cmd: Path to tesseract executable
+        variant_name: Name of this variant for labeling
+        preprocess_mode: Optional preprocessing mode ("basic", "enhanced", or None for raw)
+        
+    Returns:
+        Dict with variant results
+    """
+    start_time = time.time()
+    
+    try:
+        # Apply preprocessing if requested
+        if preprocess_mode:
+            processed = preprocess_for_ocr(image, mode=preprocess_mode)
+        else:
+            # Raw: just convert to grayscale
+            if len(image.shape) == 3:
+                processed = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
+            else:
+                processed = image
+        
+        # Run OCR
+        text, confidence = run_ocr_with_config(processed, tesseract_cmd, psm=6)
+        
+        elapsed_ms = int((time.time() - start_time) * 1000)
+        
+        return {
+            "name": variant_name,
+            "confidence": confidence / 100.0,  # Normalize to 0-1
+            "text_preview": text[:500] if text else "",
+            "text_full": text,
+            "timing_ms": elapsed_ms,
+            "char_count": len(text),
+            "success": True
+        }
+        
+    except Exception as e:
+        elapsed_ms = int((time.time() - start_time) * 1000)
+        return {
+            "name": variant_name,
+            "confidence": 0.0,
+            "text_preview": "",
+            "text_full": "",
+            "timing_ms": elapsed_ms,
+            "char_count": 0,
+            "success": False,
+            "error": str(e)
+        }
+
+
+def run_ocr_variants(
+    original_image: np.ndarray,
+    scanned_image: np.ndarray
+) -> Tuple[List[Dict[str, Any]], str]:
+    """
+    Run OCR ablation across multiple processing variants.
+    
+    Args:
+        original_image: The raw uploaded image (BGR)
+        scanned_image: The perspective-corrected scanned image (BGR)
+        
+    Returns:
+        Tuple of (list of variant results, best variant name)
+    """
+    tesseract_cmd, _ = resolve_tesseract_cmd()
+    
+    if not tesseract_cmd:
+        # Return empty results if Tesseract not found
+        return [], ""
+    
+    variants = []
+    
+    # Variant 1: Raw (original image, minimal processing)
+    raw_result = run_ocr_single_variant(
+        original_image, tesseract_cmd, "raw", preprocess_mode=None
+    )
+    variants.append(raw_result)
+    
+    # Variant 2: Scanned (perspective-corrected, basic preprocessing)
+    scan_result = run_ocr_single_variant(
+        scanned_image, tesseract_cmd, "scan", preprocess_mode="basic"
+    )
+    variants.append(scan_result)
+    
+    # Variant 3: Scanned + Enhanced (perspective-corrected, enhanced preprocessing)
+    scan_enhanced_result = run_ocr_single_variant(
+        scanned_image, tesseract_cmd, "scan_enhanced", preprocess_mode="enhanced"
+    )
+    variants.append(scan_enhanced_result)
+    
+    # Determine best variant (highest confidence with meaningful text)
+    best_variant = ""
+    best_score = -1
+    
+    for v in variants:
+        # Score = confidence * (1 + log10(char_count)) to favor longer text slightly
+        if v["char_count"] > 0 and v["confidence"] > 0:
+            import math
+            score = v["confidence"] * (1 + math.log10(max(1, v["char_count"])) / 3)
+            if score > best_score:
+                best_score = score
+                best_variant = v["name"]
+    
+    return variants, best_variant
+
