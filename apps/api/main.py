@@ -28,10 +28,12 @@ from services.ollama_client import ollama_client
 from services.safety_service import safety_service
 from services.rag_service import rag_service, RAGIndexMissingError, RAGRetrievalError
 from routes import intake
+from routes import cv_samples
 
 
 app = FastAPI()
 app.include_router(intake.router)
+app.include_router(cv_samples.router)
 
 # CORS configuration
 origins = [
