@@ -40,13 +40,47 @@ services:
       - RAG_INDEX_PATH=/app/rag/index/chroma
       - TESSERACT_CMD=tesseract     # in PATH inside container
       - CORS_ORIGINS=http://localhost:3000,http://127.0.0.1:3000
+      - REDIS_URL=redis://redis:6379/0
+    depends_on:
+      - redis
     volumes:
       # Mount RAG index read-only so you can rebuild it on host
       - ./rag:/app/rag:ro
-      - ./data:/app/data:ro
+      # Data volume: changed to RW for async file uploads
+      - ./data:/app/data
     # Windows Docker Desktop: enable host.docker.internal
     extra_hosts:
       - "host.docker.internal:host-gateway"
+
+  # ── Async Worker ─────────────────────────────
+  worker:
+    build:
+      context: .
+      dockerfile: apps/api/Dockerfile
+    command: python apps/api/worker.py
+    environment:
+      - OLLAMA_BASE_URL=http://host.docker.internal:11434
+      - OLLAMA_MODEL=qwen2.5:7b-instruct
+      - RAG_INDEX_PATH=/app/rag/index/chroma
+      - TESSERACT_CMD=tesseract
+      - REDIS_URL=redis://redis:6379/0
+    depends_on:
+      - redis
+    volumes:
+      - ./rag:/app/rag:ro
+      - ./data:/app/data
+      # Mount code so worker picks up changes
+      - ./apps/api:/app/apps/api
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+
+  # ── Redis (Job Queue) ────────────────────────
+  redis:
+    image: redis:alpine
+    ports:
+      - "6379:6379"  # Optional: expose to host for debugging
+    volumes:
+      - redis_data:/data
 
   # ── Ollama (optional — use: docker compose --profile ollama up --build) ──
   ollama:
@@ -67,3 +101,4 @@ services:
 
 volumes:
   ollama_data:
+  redis_data:
