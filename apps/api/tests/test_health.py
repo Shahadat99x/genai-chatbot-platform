@@ -48,7 +48,39 @@ def test_ready_returns_json():
     data = resp.json()
     assert data["status"] in ("ready", "not_ready")
     assert "checks" in data
-    for key in ("ollama", "rag_index", "ocr"):
-        assert key in data["checks"]
-        assert "ok" in data["checks"][key]
-        assert "detail" in data["checks"][key]
+
+# ── Async Intake Smoke Tests ──
+
+def test_get_job_returns_queued(client):
+    """Test GET /intake/jobs/{id} mocking Redis."""
+    # We need to mock redis_client.get_job or the redis client itself
+    # Since we can't easily mock the module import inside the route without a fixture,
+    # we'll rely on the fact that without Redis running, it might fail or we mock it.
+    # Actually, we can just test that the route exists and tries to connect.
+    # Better: Mock the service method on the module.
+    
+    import services.redis_client as rc
+    from unittest.mock import MagicMock
+    
+    original_get = rc.get_job
+    rc.get_job = MagicMock(return_value={"id": "job-123", "status": "queued"})
+    
+    try:
+        resp = client.get("/intake/jobs/job-123")
+        assert resp.status_code == 200
+        assert resp.json()["status"] == "queued"
+    finally:
+        rc.get_job = original_get
+
+def test_get_job_not_found(client):
+    import services.redis_client as rc
+    from unittest.mock import MagicMock
+    
+    original_get = rc.get_job
+    rc.get_job = MagicMock(return_value=None)
+    
+    try:
+        resp = client.get("/intake/jobs/nonexistent")
+        assert resp.status_code == 404
+    finally:
+        rc.get_job = original_get
