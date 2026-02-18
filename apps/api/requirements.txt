@@ -11,3 +11,4 @@ pillow
 python-multipart
 python-dotenv
 redis
+supabase

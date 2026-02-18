@@ -33,6 +33,7 @@ from services.triage_service import triage_service # Phase 3
 from routes import intake
 from routes import cv_samples
 from routes import intake_jobs
+from routes import intake_history
 from store import sessions # Phase 5: Shared store
 import datetime
 
@@ -40,6 +41,7 @@ app = FastAPI()
 app.include_router(intake.router)
 app.include_router(cv_samples.router)
 app.include_router(intake_jobs.router) # Register intake_jobs router
+app.include_router(intake_history.router)
 
 # CORS configuration (override with CORS_ORIGINS env var, comma-separated)
 _default_origins = ["http://localhost:3000", "http://127.0.0.1:3000"]
