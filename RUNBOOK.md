@@ -47,7 +47,22 @@ docker compose up
 
 ---
 
-## Verification Commands
+## 4. Supabase (Phase 5A)
+
+### Setup
+
+1. Create a Supabase project.
+2. Get `Project URL` and `service_role` secret (Project Settings > API).
+3. Set env vars:
+   ```bash
+   SUPABASE_URL=your_project_url
+   SUPABASE_SERVICE_ROLE_KEY=your_service_role_key
+   ```
+4. Run SQL Schema:
+   - Copy content of `infra/sql/phase5a.sql`
+   - Run in Supabase SQL Editor
+
+## 5. Verification Commands
 
 ```bash
 # Liveness (process alive)
